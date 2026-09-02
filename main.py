@@ -1,13 +1,15 @@
 import asyncio
 import logging
+import os
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from contextlib import asynccontextmanager
-import signal
 
 from config import settings
 from telegram_service import telegram
 from handlers import RSSHandler, WebhookHandler, LogEntry
+
+IS_VERCEL = os.getenv("VERCEL") == "1"
 
 # Конфигурация логирования
 logging.basicConfig(
@@ -81,9 +83,11 @@ async def lifespan(app: FastAPI):
     
     # Startup
     await initialize_handlers()
-    background_task = asyncio.create_task(background_fetch_loop())
-    
-    logger.info("Приложение запущено")
+    if not IS_VERCEL:
+        background_task = asyncio.create_task(background_fetch_loop())
+        logger.info("Приложение запущено (фоновый RSS-цикл активен)")
+    else:
+        logger.info("Приложение запущено на Vercel (фоновый цикл отключён)")
     
     yield
     
@@ -117,6 +121,17 @@ class WebhookPayload(BaseModel):
 
 
 # API Endpoints
+@app.get("/")
+async def root():
+    """Корневая страница"""
+    return {
+        "service": "Telegram Logs Bot",
+        "docs": "/docs",
+        "health": "/health",
+        "webhook": "/webhook",
+    }
+
+
 @app.get("/health")
 async def health():
     """Проверка здоровья приложения"""
