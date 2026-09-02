@@ -1,5 +1,7 @@
 import feedparser
-from datetime import datetime, timezone
+import html
+import re
+from datetime import datetime, timezone, timedelta
 import logging
 from .base import SourceHandler, LogEntry
 
@@ -10,47 +12,52 @@ class RSSHandler(SourceHandler):
     """Обработчик RSS лент"""
     
     def __init__(self, name: str, feed_url: str, max_items: int = 10):
-        """
-        Args:
-            name: Имя источника (для логирования)
-            feed_url: URL RSS ленты
-            max_items: Максимум элементов за раз
-        """
         super().__init__(name)
         self.feed_url = feed_url
         self.max_items = max_items
-        self.last_entries = set()  # Для отслеживания новых
+        self.last_entries: set[str] = set()
     
-    async def fetch(self) -> list[LogEntry]:
-        """Получить новые элементы из RSS"""
+    async def fetch(self, since_minutes: int | None = None) -> list[LogEntry]:
+        """
+        Получить новые элементы из RSS.
+
+        Args:
+            since_minutes: если задано — только записи новее N минут (для serverless/cron)
+        """
         try:
             feed = feedparser.parse(self.feed_url)
             
             if feed.bozo:
                 logger.warning(f"RSS парс ошибка {self.name}: {feed.bozo_exception}")
             
+            cutoff = None
+            if since_minutes is not None:
+                cutoff = datetime.now(tz=timezone.utc) - timedelta(minutes=since_minutes)
+            
             entries = []
             
             for item in feed.entries[:self.max_items]:
-                # Генерируем уникальный ID элемента
                 item_id = item.get('id') or item.get('link', '')
-                
-                # Если это новое, добавляем
-                if item_id not in self.last_entries:
+                timestamp = self._parse_date(item)
+
+                if cutoff and timestamp < cutoff:
+                    continue
+
+                if since_minutes is None and item_id in self.last_entries:
+                    continue
+
+                if since_minutes is None:
                     self.last_entries.add(item_id)
                     
-                    # Парсим дату
-                    timestamp = self._parse_date(item)
-                    
-                    entry = LogEntry(
-                        source=self.name,
-                        title=item.get('title', 'Без заголовка'),
-                        content=self._extract_content(item),
-                        url=item.get('link'),
-                        timestamp=timestamp,
-                        tags=self._extract_tags(item),
-                    )
-                    entries.append(entry)
+                entry = LogEntry(
+                    source=self.name,
+                    title=self._clean_text(item.get('title', 'Без заголовка')),
+                    content=self._extract_content(item),
+                    url=item.get('link'),
+                    timestamp=timestamp,
+                    tags=self._extract_tags(item),
+                )
+                entries.append(entry)
             
             if entries:
                 logger.info(f"RSS {self.name}: найдено {len(entries)} новых")
@@ -62,8 +69,12 @@ class RSSHandler(SourceHandler):
             return []
     
     @staticmethod
+    def _clean_text(text: str) -> str:
+        text = re.sub(r'<[^>]+>', '', text)
+        return html.unescape(text).strip()
+    
+    @staticmethod
     def _parse_date(item: dict) -> datetime:
-        """Парсит дату из RSS элемента"""
         try:
             if 'published_parsed' in item:
                 return datetime(*item.published_parsed[:6], tzinfo=timezone.utc)
@@ -76,19 +87,11 @@ class RSSHandler(SourceHandler):
     
     @staticmethod
     def _extract_content(item: dict) -> str:
-        """Извлекает основной контент элемента"""
-        # Пробуем разные поля
         content = item.get('summary') or item.get('description', '')
-        
-        # Убираем HTML теги (простой способ)
-        import re
-        content = re.sub(r'<[^>]+>', '', content)
-        
-        return content.strip()
+        return RSSHandler._clean_text(content)
     
     @staticmethod
     def _extract_tags(item: dict) -> list[str]:
-        """Извлекает тэги/категории"""
         tags = []
         
         if 'tags' in item:

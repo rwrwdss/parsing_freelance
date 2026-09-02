@@ -1,13 +1,14 @@
 import asyncio
 import logging
 import os
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Header
 from pydantic import BaseModel
 from contextlib import asynccontextmanager
 
 from config import settings
 from telegram_service import telegram
 from handlers import RSSHandler, WebhookHandler, LogEntry
+from rss_sources import RSS_FEEDS
 
 IS_VERCEL = os.getenv("VERCEL") == "1"
 
@@ -27,25 +28,43 @@ background_task = None
 async def initialize_handlers():
     """Инициализирует все обработчики источников"""
     global handlers
-    
-    # RSS обработчики
-    handlers.append(
-        RSSHandler(
-            name="Freelance.ru (Категория 5)",
-            feed_url="https://www.fl.ru/rss/?category=5",
-            max_items=10,
+    handlers.clear()
+
+    for feed in RSS_FEEDS:
+        handlers.append(
+            RSSHandler(
+                name=feed.name,
+                feed_url=feed.feed_url,
+                max_items=feed.max_items,
+            )
         )
-    )
-    
-    # Можно добавить другие RSS ленты:
-    # handlers.append(
-    #     RSSHandler(
-    #         name="Другой источник",
-    #         feed_url="https://example.com/feed",
-    #     )
-    # )
-    
+
     logger.info(f"Инициализировано {len(handlers)} обработчиков")
+
+
+async def fetch_and_send_rss(since_minutes: int | None = None) -> dict:
+    """Проверяет RSS и отправляет новые записи в Telegram"""
+    if not handlers:
+        await initialize_handlers()
+
+    sent = 0
+    errors = 0
+    checked = len(handlers)
+
+    for handler in handlers:
+        try:
+            logs = await handler.fetch(since_minutes=since_minutes)
+            for log in logs:
+                message = log.format_for_telegram()
+                if await telegram.send_message(message):
+                    sent += 1
+                else:
+                    errors += 1
+        except Exception as e:
+            logger.error(f"Ошибка обработчика {handler.name}: {e}")
+            errors += 1
+
+    return {"checked": checked, "sent": sent, "errors": errors}
 
 
 async def background_fetch_loop():
@@ -58,7 +77,6 @@ async def background_fetch_loop():
                 try:
                     logs = await handler.fetch()
                     for log in logs:
-                        # Отправляем каждый лог в Telegram
                         message = log.format_for_telegram()
                         await telegram.send_message(message)
                 
@@ -129,7 +147,33 @@ async def root():
         "docs": "/docs",
         "health": "/health",
         "webhook": "/webhook",
+        "cron": "/cron/rss",
     }
+
+
+def _verify_cron_auth(authorization: str | None) -> None:
+    """Проверка секрета для cron endpoint"""
+    secret = settings.cron_secret or os.getenv("CRON_SECRET", "")
+    if not secret:
+        return
+    expected = f"Bearer {secret}"
+    if authorization != expected:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+
+@app.get("/cron/rss")
+async def cron_rss(authorization: str | None = Header(default=None)):
+    """
+    Cron endpoint: проверяет RSS и шлёт новые заказы в Telegram.
+    На Vercel вызывается по расписанию; можно дергать вручную или через cron-job.org.
+    """
+    _verify_cron_auth(authorization)
+
+    # Окно чуть шире интервала, чтобы не пропустить заказы между запусками
+    since_minutes = max(settings.rss_check_interval // 60 + 5, 10)
+    result = await fetch_and_send_rss(since_minutes=since_minutes)
+    logger.info(f"Cron RSS: {result}")
+    return {"status": "ok", **result}
 
 
 @app.get("/health")

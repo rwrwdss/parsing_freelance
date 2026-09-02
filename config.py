@@ -20,6 +20,9 @@ class Settings(BaseSettings):
     # Debug
     debug: bool = False
 
+    # Cron (Vercel / внешний cron-job.org)
+    cron_secret: str = ""
+
     @field_validator("rss_check_interval", mode="before")
     @classmethod
     def empty_int_uses_default(cls, value):
