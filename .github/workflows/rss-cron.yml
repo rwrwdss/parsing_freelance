@@ -1,0 +1,16 @@
+name: RSS Poll (every 5 min)
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+jobs:
+  poll-rss:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Vercel RSS cron
+        run: |
+          curl -fsS \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            "https://parsing-freelance.vercel.app/cron/rss"
