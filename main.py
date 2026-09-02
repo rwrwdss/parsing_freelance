@@ -31,11 +31,14 @@ async def initialize_handlers():
     handlers.clear()
 
     for feed in RSS_FEEDS:
+        if not feed.enabled:
+            continue
         handlers.append(
             RSSHandler(
                 name=feed.name,
                 feed_url=feed.feed_url,
                 max_items=feed.max_items,
+                keywords=feed.keywords or None,
             )
         )
 
@@ -235,7 +238,18 @@ async def list_sources():
                 "type": handler.__class__.__name__,
             }
             for handler in handlers
-        ]
+        ],
+        "configured": [
+            {
+                "name": feed.name,
+                "platform": feed.platform,
+                "enabled": feed.enabled,
+                "feed_url": feed.feed_url,
+                "source_page": feed.source_page,
+                "keywords": list(feed.keywords),
+            }
+            for feed in RSS_FEEDS
+        ],
     }
 
 

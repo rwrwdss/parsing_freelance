@@ -1,33 +1,58 @@
-# RSS — категории и источники
+# RSS — IT / backend / mobile
 
-## Целевая категория (из plans.MD)
+## Сводка по площадкам
 
-| Параметр | Значение |
-|----------|----------|
-| Сайт | [freelance.ru](https://freelance.ru) |
-| Категория | **4 — Веб-разработка и IT** |
-| Страница фильтра | https://freelance.ru/task?q=&c%5B%5D=4&a=1&v=1 |
+| Площадка | RSS заказов | Статус для бота |
+|----------|-------------|-----------------|
+| [freelance.ru](https://freelance.ru/) | Нет (`/rss`, `/task/rss` → 404) | Через **fl.ru** (общая экосистема) |
+| [weblancer.net](https://www.weblancer.net/) | `https://www.weblancer.net/rss/projects.rss` | ❌ Cloudflare 403 с сервера/cron |
+| [upwork.com](https://www.upwork.com/) | RSS **отключён** с 20.08.2024 | ❌ Нужен API или сторонний сервис |
 
-## RSS на freelance.ru
+---
 
-**Заказы:** RSS **нет** ( `/rss`, `/task/rss` → 404 ).
+## freelance.ru → fl.ru (активные ленты)
 
-**Фрилансеры:** есть HTML-страница https://freelance.ru/freelancers/rss — не подходит для мониторинга заказов.
+| Направление | RSS URL | HTTP |
+|-------------|---------|------|
+| Веб-программирование | `https://www.fl.ru/rss/all.xml?category=5&subcategory=37` | ✅ |
+| Сайты под ключ | `https://www.fl.ru/rss/all.xml?category=2&subcategory=27` | ✅ |
+| Веб-прогр. (сайты) | `https://www.fl.ru/rss/all.xml?category=2&subcategory=9` | ✅ |
+| Backend — прикладное | `https://www.fl.ru/rss/all.xml?category=5&subcategory=1` | ✅ |
+| Backend — системное | `https://www.fl.ru/rss/all.xml?category=5&subcategory=2` | ✅ |
+| Backend — БД | `https://www.fl.ru/rss/all.xml?category=5&subcategory=5` | ✅ |
+| Backend — keyword-фильтр | `https://www.fl.ru/rss/all.xml?category=5` + keywords | ✅ |
+| Mobile — keyword-фильтр | `https://www.fl.ru/rss/all.xml?category=5` + keywords | ✅ |
+| Mobile / игры (Unity) | `https://www.fl.ru/rss/all.xml?category=16&subcategory=11` | ✅ |
 
-## RSS на fl.ru (используем для бота)
+**Mobile:** отдельной стабильной RSS-категории нет — фильтруем ленту `category=5` по ключевым словам (ios, android, flutter, react native и т.д.).
 
-| Категория | RSS URL | Статус |
-|-----------|---------|--------|
-| Веб-программирование (cat=5, sub=37) | https://www.fl.ru/rss/all.xml?category=5&subcategory=37 | ✅ 200 |
-| Разработка сайтов (cat=2) | https://www.fl.ru/rss/all.xml?category=2 | ✅ 200 |
-| Программирование (cat=5) | https://www.fl.ru/rss/all.xml?category=5 | ✅ 200 |
+Конфиг: `rss_sources.py` → `RSS_FEEDS`.
 
-## Cron
+---
+
+## weblancer.net
+
+- Официальный URL: `https://www.weblancer.net/rss/projects.rss`
+- В браузере может открываться, но с Vercel/GitHub Actions — **403 Cloudflare**
+- В `rss_sources.py` помечен `enabled=False` до появления прокси/API
+
+---
+
+## upwork.com
+
+- RSS jobs feed снят: `https://www.upwork.com/ab/feed/jobs/rss` → 403/404
+- Альтернатива: [Upwork API](https://www.upwork.com/developer/) или webhook через сторонний парсер
+
+---
+
+## Cron / деплой
 
 | Способ | Интервал | Настройка |
 |--------|----------|-----------|
 | **GitHub Actions** | каждые 5 мин | `.github/workflows/rss-cron.yml` + secret `CRON_SECRET` |
-| **Vercel Cron** | 08:00 UTC ежедневно | `vercel crons list` / Hobby plan |
+| **Vercel Cron** | 08:00 UTC ежедневно | `vercel.json` (Hobby plan) |
 | **Вручную** | сейчас | `vercel crons run /cron/rss` |
 
 Endpoint: `GET /cron/rss` + `Authorization: Bearer <CRON_SECRET>`
+
+Production: https://parsing-freelance.vercel.app/sources — список всех лент.

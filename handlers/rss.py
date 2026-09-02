@@ -11,11 +11,24 @@ logger = logging.getLogger(__name__)
 class RSSHandler(SourceHandler):
     """Обработчик RSS лент"""
     
-    def __init__(self, name: str, feed_url: str, max_items: int = 10):
+    def __init__(
+        self,
+        name: str,
+        feed_url: str,
+        max_items: int = 10,
+        keywords: tuple[str, ...] | None = None,
+    ):
         super().__init__(name)
         self.feed_url = feed_url
         self.max_items = max_items
+        self.keywords = keywords or ()
         self.last_entries: set[str] = set()
+    
+    def _matches_keywords(self, title: str, content: str) -> bool:
+        if not self.keywords:
+            return True
+        text = f"{title} {content}".lower()
+        return any(keyword.lower() in text for keyword in self.keywords)
     
     async def fetch(self, since_minutes: int | None = None) -> list[LogEntry]:
         """
@@ -25,7 +38,10 @@ class RSSHandler(SourceHandler):
             since_minutes: если задано — только записи новее N минут (для serverless/cron)
         """
         try:
-            feed = feedparser.parse(self.feed_url)
+            feed = feedparser.parse(
+                self.feed_url,
+                agent="Mozilla/5.0 (compatible; CaseSearcherBot/1.0; +https://parsing-freelance.vercel.app)",
+            )
             
             if feed.bozo:
                 logger.warning(f"RSS парс ошибка {self.name}: {feed.bozo_exception}")
@@ -36,9 +52,14 @@ class RSSHandler(SourceHandler):
             
             entries = []
             
-            for item in feed.entries[:self.max_items]:
+            for item in feed.entries[: self.max_items]:
                 item_id = item.get('id') or item.get('link', '')
                 timestamp = self._parse_date(item)
+                title = self._clean_text(item.get('title', 'Без заголовка'))
+                content = self._extract_content(item)
+
+                if not self._matches_keywords(title, content):
+                    continue
 
                 if cutoff and timestamp < cutoff:
                     continue
@@ -51,8 +72,8 @@ class RSSHandler(SourceHandler):
                     
                 entry = LogEntry(
                     source=self.name,
-                    title=self._clean_text(item.get('title', 'Без заголовка')),
-                    content=self._extract_content(item),
+                    title=title,
+                    content=content,
                     url=item.get('link'),
                     timestamp=timestamp,
                     tags=self._extract_tags(item),
