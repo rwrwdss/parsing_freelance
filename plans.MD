@@ -24,6 +24,6 @@
 
 ## Cron
 
-- Endpoint: `GET /cron/rss`
-- Vercel Cron: 1 раз в день (Hobby plan)
-- Для проверки каждые 5 мин: [cron-job.org](https://cron-job.org) → `GET https://parsing-freelance.vercel.app/cron/rss` + header `Authorization: Bearer <CRON_SECRET>`
+- Endpoint: `GET /cron/rss` + header `Authorization: Bearer <CRON_SECRET>`
+- **Vercel Cron (Hobby):** 1 раз в день в 08:00 UTC (`0 8 * * *`)
+- **Каждые 5 мин (рекомендуется):** [cron-job.org](https://cron-job.org) → URL `https://parsing-freelance.vercel.app/cron/rss`, интервал 5 мин, header `Authorization: Bearer <CRON_SECRET>`
